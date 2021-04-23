@@ -1,37 +1,56 @@
-class TimeCollect {
-    constructor(pages) {
-        this.startTime = Date.now();
-        this.pages = pages;
-        // 监听路由
-        window.history.pushState = this.injectHooks('pushState');
-        window.history.replaceState = this.injectHooks('replaceState');
-        // 监听页面显示隐藏
-        this.initVisibilityWatcher();
-    }
-    // 兼容的事件监听与解绑, bind === true 时监听，false解绑
-    bindEventListener(el, bind, type, fn, useCapture = false) {
-        if (bind) {
-            if (el.addEventListener) {
-                el.addEventListener(type, fn, useCapture);
-            } else if (el.attachEvent) {
-                el.attachEvent('on' + type, fn);
-            } else {
-                el['on' + type] = fn;
-            }
+const events = Object.freeze({
+    pushState: 'pushState',
+    replaceState: 'replaceState',
+    visibilityChange: 'visibilityChange',
+    hashchange: 'hashchange'
+});
+const injectHooks = Symbol('injectHooks');
+const getHooks = Symbol('getHooks');
+const initVisibilityWatcher = Symbol('initVisibilityWatcher');
+const notify = Symbol('notify');
+
+function bindEventListener(el, bind, type, fn, useCapture = false) {
+    if (bind) {
+        if (el.addEventListener) {
+            el.addEventListener(type, fn, useCapture);
+        } else if (el.attachEvent) {
+            el.attachEvent('on' + type, fn);
         } else {
-            if (el.removeEventListener) {
-                el.removeEventListener(type, fn, useCapture);
-            } else if (el.detachEvent) {
-                el.detachEvent('on' + type, fn);
-            } else {
-                el['on' + type] = null;
-            }
+            el['on' + type] = fn;
+        }
+    } else {
+        if (el.removeEventListener) {
+            el.removeEventListener(type, fn, useCapture);
+        } else if (el.detachEvent) {
+            el.detachEvent('on' + type, fn);
+        } else {
+            el['on' + type] = null;
         }
     }
-    initVisibilityWatcher() {
+}
+function getPath(url) {
+    const match = url.match(/#(.*)\??/);
+    const path = match && match[1];
+
+    return path ? path.split('?')[0] : '';
+}
+class TimeCollect {
+    constructor({pages = [], stay = ()=> {}, hashchange = ()=> {}}) {
+        this.startTime = Date.now();
+        this.pages = pages;
+        this.stay = stay;
+        this.hashchange = hashchange;
+        this.stop = false;
+        window.history.pushState = this[injectHooks](events.pushState);
+        window.history.replaceState = this[injectHooks](events.replaceState);
+        this[initVisibilityWatcher]();
+        bindEventListener(window, true, events.hashchange, this[notify].bind(this), false);
+    }
+    [initVisibilityWatcher]() {
         let hidden, visibilityChange;
 
-        if (typeof document.hidden !== 'undefined') { // Opera 12.10 and Firefox 18 and later support
+        // Opera 12.10 and Firefox 18 and later support
+        if (typeof document.hidden !== 'undefined') { 
             hidden = 'hidden';
             visibilityChange = 'visibilitychange';
         } else if (typeof document.msHidden !== 'undefined') {
@@ -41,31 +60,24 @@ class TimeCollect {
             hidden = 'webkitHidden';
             visibilityChange = 'webkitvisibilitychange';
         }
-        this.bindEventListener(
+        bindEventListener(
             document,
             true,
             visibilityChange,
-            ()=> this.notify('visibilityChange', document[hidden], window.location.href)
+            ()=> this[notify](events.visibilityChange, document[hidden], window.location.href)
         );
     }
-    injectHooks(event) {
+    [injectHooks](event) {
         const originEvent = window.history[event];
 
         if (!originEvent) return;
         return (...args)=> {
-            this.notify(event, args, window.location.href);
+            this[notify](event, args, window.location.href);
             return originEvent.apply(this, args);
         }
     }
-    // 获取 path
-    getPath(url) {
-        const path = url.match(/#(.*)\??/) && url.match(/#(.*)\??/)[1];
-
-        return path ? path.split('?')[0] : '';
-    }
-    // 获取对应 path 的 type 钩子函数
-    getHooks(url, type) {
-        const path = this.getPath(url);
+    [getHooks](url, type) {
+        const path = getPath(url);
         const callbacks = [];
 
         if (path) {
@@ -75,31 +87,30 @@ class TimeCollect {
         }
         return callbacks;
     }
-    // 执行 pages 里面的对应 callbacks
-    notify(event, args, lastUrl) {
-
-        if (event === 'pushState' || event === 'replaceState') {
-            // 执行 lastUrl 的 leave 钩子
-            this.getHooks(lastUrl, 'leave').forEach(cb=> cb());
-            // 执行 url 的 enter 钩子
-            this.getHooks(args[2], 'enter').forEach(cb=> cb());
-            // 输出在 lastUrl 的停留时间
-            console.log('在' + lastUrl + '停留了' + (Date.now() - this.startTime) + 'ms');
-            // reset time
-            this.startTime = Date.now();
-        } else if (event === 'visibilityChange') {
+    [notify](event, args, lastUrl) {
+        if (this.stop) return;
+        if (event === events.pushState || event === events.replaceState) {
+            this[getHooks](lastUrl, 'leave').forEach(cb=> cb()); // 执行 lastUrl 的 leave 钩子
+            this[getHooks](args[2], 'enter').forEach(cb=> cb()); // 执行 url 的 enter 钩子
+            this.stay(lastUrl, (Date.now() - this.startTime)); // 执行在 lastUrl 的停留时间钩子
+            this.startTime = Date.now(); // reset time
+        } else if (event === events.visibilityChange) {
             if (args) {
-                // 隐藏钩子
-                this.getHooks(lastUrl, 'hide').forEach(cb=> cb());
-                // 输出在 lastUrl 的停留时间
-                console.log('在' + lastUrl + '停留了' + (Date.now() - this.startTime) + 'ms');
+                this[getHooks](lastUrl, 'hide').forEach(cb=> cb()); // 执行 lastUrl 的 hide 钩子
+                this.stay(lastUrl, (Date.now() - this.startTime)); // 执行在 lastUrl 的停留时间钩子
             } else {
-                // 显示钩子
-                this.getHooks(lastUrl, 'show').forEach(cb=> cb());
-                // reset time
-                this.startTime = Date.now();
+                this[getHooks](lastUrl, 'show').forEach(cb=> cb()); // 执行 lastUrl 的 show 钩子
+                this.startTime = Date.now(); // reset time
             }
+        } else if (event.type && event.type === events.hashchange) {
+            this.hashchange(event.newURL, event.oldURL);
         }
+    }
+    stopNotify() {
+        this.stop = true;
+    }
+    resetNotify() {
+        this.stop = false;
     }
 }
 

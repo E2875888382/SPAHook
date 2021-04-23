@@ -1,4 +1,6 @@
 # A page hooks class for SPA
+## description
+> 在单页面项目中注入的钩子函数，可以用于页面停留时间收集
 
 ## Project setup
 ```
