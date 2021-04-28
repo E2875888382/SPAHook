@@ -69,9 +69,14 @@ const timeCollect =  new TimeCollect({
     ]
 });
 
-timeCollect.stopNotify();
+timeCollect.stopNotify(()=> console.log('暂停监听'));
+timeCollect.addPageConfig({
+    path: '/one',
+    enter() {
+        console.log('这是后面添加的配置');
+    }
+});
 
 setTimeout(()=> {
-    console.log('重新开始监听');
-    timeCollect.resetNotify();
+    timeCollect.resetNotify(()=> console.log('恢复监听'));
 }, 10000);

@@ -106,11 +106,22 @@ class TimeCollect {
             this.hashchange(event.newURL, event.oldURL);
         }
     }
-    stopNotify() {
+    stopNotify(fn) {
         this.stop = true;
+        if (fn && typeof fn === 'function') fn();
     }
-    resetNotify() {
+    resetNotify(fn) {
         this.stop = false;
+        if (fn && typeof fn === 'function') fn();
+    }
+    addPageConfig(pageConfig) {
+        if (!pageConfig) {
+            throw new TypeError('addPageConfig method need a config param');
+        }
+        if (typeof pageConfig !== 'object' || pageConfig === null) {
+            throw new TypeError(`${pageConfig} is not a config object`);
+        }
+        this.pages.push(pageConfig);
     }
 }
 
